@@ -34,7 +34,7 @@ FROM golang:1.19 as go-car-build-amd64
 
 WORKDIR /app
 
-RUN git clone https://github.com/tosichain/go-car
+RUN git clone https://github.com/tosichain/go-car -b v1.0
 
 RUN cd go-car/cmd/car && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build
 
@@ -43,7 +43,7 @@ FROM golang:1.19 as go-car-build-riscv64
 
 WORKDIR /app
 
-RUN git clone https://github.com/tosichain/go-car
+RUN git clone https://github.com/tosichain/go-car -b v1.0
 
 RUN cd go-car/cmd/car && GOOS=linux GOARCH=riscv64 CGO_ENABLED=0 go build
 
