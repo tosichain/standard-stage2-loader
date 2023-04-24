@@ -24,7 +24,26 @@ export HOME=/root
 
 # start up ipfs
 cp -r /opt/ipfs /root/.ipfs
+echo "Importing previous output DAG"
+# XXX this should be improved
+PREV_OUTPUT_CID=$($ARCH_PATH/car debug $PREV_OUTPUT_CID_BLOCKDEV | $ARCH_PATH/car compile | IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline dag import | grep "Pinned root" | cut -f 2)
+
+echo "Importing data dev"
+# XXX this should be improved
+INPUT_CID=$($ARCH_PATH/car debug $DATA_DEV | $ARCH_PATH/car compile | IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline dag import | grep "Pinned root" | cut -f 2)
+
+echo "Done importing"
+
+mkdir -p /contract
+
+echo "Unpacking contract directory"
+
+IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline get -o /root/contract.squashfs $PREV_OUTPUT_CID_BLOCKDEV/contract.squashfs
+
+echo "Done unpacking, starting IPFS"
+
 IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs daemon --offline &
+
 
 echo "Waiting for IPFS"
 while true; do 
@@ -38,43 +57,33 @@ while true; do
 done
 echo "IPFS up"
 
-echo "Importing previous output DAG"
-PREV_OUTPUT_CID=$($ARCH_PATH/car debug $PREV_OUTPUT_CID_BLOCKDEV | $ARCH_PATH/car compile | IPFS_PATH=/mnt/scratch/.ipfs $ARCH_PATH/ipfs dag import | grep "Pinned root" | cut -f 2)
-
-echo "Importing data dev"
-INPUT_CID=$($ARCH_PATH/car debug $DATA_DEV | $ARCH_PATH/car compile | IPFS_PATH=/mnt/scratch/.ipfs $ARCH_PATH/ipfs dag import | grep "Pinned root" | cut -f 2)
-
-echo "Done importing"
-
-mkdir -p /root/contract
-
-echo "Unpacking contract directory"
-
-$ARCH_PATH/ipfs get -a $PREV_OUTPUT_CID_BLOCKDEV/contract | tar -Cxf /root/contract -
-
-echo "Done unpacking"
-
-mkdir -p /root/contract/dev /root/contract/proc /root/contract/sys
-mount --bind /dev /root/contract/dev
-mount --bind /sys /root/contract/sys
-mount --bind /proc /root/contract/proc
+mount -t squashfs -o ro /root/contract.squashfs /contract
+mkdir -p /contract/dev /contract/proc /contract/sys
+mount --bind /dev /contract/dev
+mount --bind /sys /contract/sys
+mount --bind /proc /contract/proc
+mount --bind /root /contract/root
 
 echo "Starting up contract.."
 OUTPUT_CID=$(HOME=/root chroot /mnt/code /init $PREV_OUTPUT_CID $INPUT_CID)
 PROCESS_RETURN_CODE=$?
 if [ $PROCESS_RETURN_CODE != 0 ]; then
 	echo "RETURN_STATUS: $PROCESS_RETURN_CODE - OUTPUT_CID: $OUTPUT_CID"
-	echo "non-zero status received, previous output CID comes new output CID"
+	echo "non-zero status received, previous output CID becomes new output CID"
 	OUTPUT_CID=$PREV_OUTPUT_CID
 fi
 
-printf '%s\0' $OUTPUT_CID > /tmp/pre-keccak
-python3 /keccak256.py /tmp/pre-keccak > /tmp/keccak
-xxd -r -p < /tmp/keccak > $OUTPUT_DEV
+IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline get -o /tmp/output.file  $OUTPUT_CID/output.file
+
+OUTPUT_SHA256=$(sha256sum /tmp/output.file | cut -d " " -f 1)
+
+printf "%s\0%s\0" $OUTPUT_CID $OUTPUT_SHA256 > /tmp/pre-sha256
+SHA256=$(sha256sum /tmp/pre-sha256 | cut -d " " -f -1)
+echo -n $SHA256 | xxd -r -p > $OUTPUT_DEV
 
 # no need to do this in court
 if [ "$RUNTIME_CONFIG" = "qemu" ]; then
-   IPFS_PATH=/mnt/scratch/.ipfs $ARCH_PATH/ipfs dag export $OUTPUT_CID > /mnt/scratch/output.car
+   IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs dag export $OUTPUT_CID > /root/output.car
 fi
 
 echo "Done, halting..."

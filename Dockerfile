@@ -1,9 +1,7 @@
 # =============================================================================
 FROM alpine:3.15.0 AS image-base
 
-RUN apk --no-cache add e2fsprogs coreutils python3 py3-pip gcc musl-dev
-RUN pip3 install pycryptodome
-RUN apk del gcc musl-dev
+RUN apk --no-cache add coreutils xxd
 
 # =============================================================================
 
@@ -69,9 +67,8 @@ COPY ./init /init
 
 FROM alpine:3.15.0 AS buildimg
 RUN apk add squashfs-tools
-
 COPY --from=image / /image
-RUN mksquashfs /image /loader.squashfs -reproducible -all-root -noI -noId -noD -noF -noX -mkfs-time 0 -all-time 0
+RUN mksquashfs /image /stage2.squashfs -reproducible -all-root -noI -noId -noD -noF -noX -mkfs-time 0 -all-time 0
 
 FROM busybox
-COPY --from=buildimg /loader.squashfs /loader.squashfs
+COPY --from=buildimg /stage2.squashfs /stage2.squashfs
