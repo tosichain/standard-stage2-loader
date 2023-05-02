@@ -92,7 +92,7 @@ mount --bind /proc /contract/proc
 mount --bind /root /contract/root
 
 echo "Starting up contract.."
-HOME=/root chroot /contract /init
+HOME=/root IPFS_API="/ip4/127.0.0.1/tcp/5001" chroot /contract /init
 PROCESS_RETURN_CODE=$?
 OUTPUT_CID=$(IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs files stat --hash /state)
 if [ $PROCESS_RETURN_CODE != 0 ]; then
