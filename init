@@ -37,13 +37,17 @@ cp -r /opt/ipfs /root/.ipfs
 echo "Importing previous output DAG"
 # XXX this should be improved
 echo "DD'ing out file"
-dd if=$PREV_OUTPUT_CID_BLOCKDEV bs=$PREV_OUTPUT_SIZE count=1 of=/root/previous.car
+dd if=$PREV_OUTPUT_CID_BLOCKDEV bs=1048576 count=$(( (${PREV_OUTPUT_SIZE} / 1048576) + 1 )) of=/root/previous.car
+truncate -s $PREV_OUTPUT_SIZE /root/previous.car
+
 echo "Importing prev car file"
 PREV_OUTPUT_CID=$(IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline dag import /root/previous.car | grep "Pinned root" | cut -f 2)
 rm -f /root/previous.car
 
 echo "Importing data dev"
-dd if=$DATA_DEV bs=$INPUT_SIZE count=1 of=/root/data.car
+dd if=$DATA_DEV bs=1048576 count=$(( (${INPUT_SIZE} / 1048576) + 1 )) of=/root/data.car
+truncate -s $INPUT_SIZE /root/data.car
+
 echo "dag importing"
 INPUT_CID=$(IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline dag import /root/data.car | grep "Pinned root" | cut -f 2)
 rm -f /root/data.car
