@@ -4,11 +4,13 @@ IPFS_PORT="5001"
 
 IPFS_GATEWAY_HOST="$IPFS_HOST:$IPFS_PORT"
 
+echo $@
+
 RUNTIME_CONFIG=$1
 OUTPUT_DEV=$4
 DATA_DEV=$3
 PREV_OUTPUT_CID_BLOCKDEV=$2
-METADATA_DEV=/dev/vdf
+METADATA_DEV=$5
 
 if [ "$RUNTIME_CONFIG" = "qemu" ]; then
   ARCH=amd64
@@ -34,6 +36,10 @@ INPUT_SIZE=$((0x${INPUT_SIZE_HEX}))
 
 # start up ipfs
 cp -r /opt/ipfs /root/.ipfs
+mkdir -p /root/.bin
+echo "Copying IPFS binary in.."
+cp $ARCH_PATH/ipfs /root/.bin/
+
 echo "Importing previous output DAG"
 # XXX this should be improved
 echo "DD'ing out file"
@@ -41,7 +47,7 @@ dd if=$PREV_OUTPUT_CID_BLOCKDEV bs=1048576 count=$(( (${PREV_OUTPUT_SIZE} / 1048
 truncate -s $PREV_OUTPUT_SIZE /root/previous.car
 
 echo "Importing prev car file"
-PREV_OUTPUT_CID=$(IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline dag import /root/previous.car | grep "Pinned root" | cut -f 2)
+PREV_OUTPUT_CID=$(IPFS_PATH=/root/.ipfs /root/.bin/ipfs --offline dag import /root/previous.car | grep "Pinned root" | cut -f 2)
 rm -f /root/previous.car
 
 echo "Importing data dev"
@@ -49,32 +55,45 @@ dd if=$DATA_DEV bs=1048576 count=$(( (${INPUT_SIZE} / 1048576) + 1 )) of=/root/d
 truncate -s $INPUT_SIZE /root/data.car
 
 echo "dag importing"
-INPUT_CID=$(IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline dag import /root/data.car | grep "Pinned root" | cut -f 2)
+INPUT_CID=$(IPFS_PATH=/root/.ipfs /root/.bin/ipfs --offline dag import /root/data.car | grep "Pinned root" | cut -f 2)
 rm -f /root/data.car
 
 echo "Adding input to MFS"
-IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline files cp /ipfs/$INPUT_CID /input
+IPFS_PATH=/root/.ipfs /root/.bin/ipfs --offline files cp /ipfs/$INPUT_CID /input
 echo "Adding state to MFS"
-IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline files cp /ipfs/$PREV_OUTPUT_CID /state
+IPFS_PATH=/root/.ipfs /root/.bin/ipfs --offline files cp /ipfs/$PREV_OUTPUT_CID /state
 
 echo "Done importing"
 
 mkdir -p /root/contract
 
-echo "Unpacking contract directory"
+echo "Extracting contract squashfs"
 
 if [ x$PREV_OUTPUT_CID == xbafybeiczsscdsbs7ffqz55asqdf3smv6klcw3gofszvwlyarci47bgf354 ]; then
 	STAGE2_CID=$INPUT_CID
+	echo "First boot - preserving boot loader in /state/boot"
+	IPFS_PATH=/root/.ipfs /root/.bin/ipfs --offline files cp /ipfs/$INPUT_CID/boot /state/boot
 else
 	STAGE2_CID=$PREV_OUTPUT_CID
 fi
 
-IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs --offline get -o /root/contract.squashfs $STAGE2_CID/boot/contract.squashfs
+IPFS_PATH=/root/.ipfs /root/.bin/ipfs --offline get -o /root/contract.squashfs $STAGE2_CID/boot/contract.squashfs
 
-echo "Done unpacking, starting IPFS"
+echo "Extracting contract"
+mkdir -p /root/contract-tmp
+mount -t squashfs -o ro /root/contract.squashfs /root/contract-tmp
+cp -r /root/contract-tmp/. /root/contract/
+umount /root/contract-tmp
+rm -f /root/contract.squashfs
 
-IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs daemon --offline &
+mkdir -p /root/contract/dev /root/contract/proc /root/contract/sys
+mount --bind /dev /root/contract/dev
+mount --bind /sys /root/contract/sys
+mount --bind /proc /root/contract/proc
 
+
+echo "Starting IPFS"
+IPFS_PATH=/root/.ipfs /root/.bin/ipfs daemon --offline &
 
 echo "Waiting for IPFS"
 while true; do 
@@ -88,24 +107,17 @@ while true; do
 done
 echo "IPFS up"
 
-mount -t squashfs -o ro /root/contract.squashfs /contract
-mkdir -p /contract/dev /contract/proc /contract/sys
-mount --bind /dev /contract/dev
-mount --bind /sys /contract/sys
-mount --bind /proc /contract/proc
-mount --bind /root /contract/root
-
 echo "Starting up contract.."
-HOME=/root IPFS_API="/ip4/127.0.0.1/tcp/5001" chroot /contract /init
+HOME=/root IPFS_API="/ip4/127.0.0.1/tcp/5001" chroot /root/contract /init
 PROCESS_RETURN_CODE=$?
-OUTPUT_CID=$(IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs files stat --hash /state)
+OUTPUT_CID=$(IPFS_PATH=/root/.ipfs /root/.bin/ipfs files stat --hash /state)
 if [ $PROCESS_RETURN_CODE != 0 ]; then
 	echo "RETURN_STATUS: $PROCESS_RETURN_CODE - OUTPUT_CID: $OUTPUT_CID"
 	echo "non-zero status received, previous output CID becomes new output CID"
 	OUTPUT_CID=$PREV_OUTPUT_CID
 fi
 
-IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs get -o /tmp/output.file  $OUTPUT_CID/output.file
+IPFS_PATH=/root/.ipfs /root/.bin/ipfs get -o /tmp/output.file  $OUTPUT_CID/output.file
 
 touch /tmp/output.file
 
@@ -117,7 +129,7 @@ echo -n $SHA256 | xxd -r -p > $OUTPUT_DEV
 
 # no need to do this in court
 if [ "$RUNTIME_CONFIG" = "qemu" ]; then
-   IPFS_PATH=/root/.ipfs $ARCH_PATH/ipfs dag export $OUTPUT_CID > /root/output.car
+   IPFS_PATH=/root/.ipfs /root/.bin/ipfs dag export $OUTPUT_CID > /root/output.car
 fi
 
 echo "Done, halting..."

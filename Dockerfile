@@ -1,16 +1,16 @@
 # =============================================================================
 FROM alpine:3.17.0 AS image-base
 
-RUN apk --no-cache add coreutils xxd
+RUN apk --no-cache add coreutils xxd squashfs-tools
 
 # =============================================================================
 
-FROM golang:1.18 as kubo-build
+FROM golang:1.19 as kubo-build
 RUN apt-get update && apt-get install -y llvm 
 
 WORKDIR /app
 
-RUN git clone "https://github.com/tosichain/kubo.git" -b zerolength
+RUN git clone "https://github.com/tosichain/kubo" -b trusted_carv2
 
 WORKDIR /app/kubo
 RUN go mod download
